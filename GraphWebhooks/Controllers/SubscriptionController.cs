@@ -37,13 +37,56 @@ namespace GraphWebhooks.Controllers
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"];
+
+            //if subscription was for custom mailfolder get the id of custom folder first
+            //TODO: add control to choose if subscribing to general messages or only from a folder
+            
+            bool isCustomMailFolderChosen = true;
+
+            //use custom mailFolder here textbox value
+            //TODO: add textbox for user to input custom mail folder name
+            string mailFolderName = "Inbox";
+            //set default
+            string resourceValue = "me/messages";
+
+            if (isCustomMailFolderChosen)
+            {
+                //set resource value for get folder Id
+                string resourceValueForGetId = "/beta/me/mailFolders('" + mailFolderName + "')";
+
+                //build get request for Mail Folder Id
+                HttpRequestMessage requestForId = new HttpRequestMessage(HttpMethod.Get, resourceEndpoint + resourceValueForGetId);
+                requestForId.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+
+                // Send the 'GET' request.
+                HttpResponseMessage responseForId = await client.SendAsync(requestForId);
+                if (responseForId.IsSuccessStatusCode)
+                {
+                    // Parse the JSON response.
+                    //added Nuget pkg Microsoft.AspNet.WebApi.Client 5.2.2 for system.net.http.Formatting dll
+                    MailFolder mailFolderObject = await responseForId.Content.ReadAsAsync<MailFolder>();
+
+                    string folderId = mailFolderObject.Id;
+                    //change default resourceValue to be used for POST
+                    resourceValue = "me/mailFolders/" + folderId + "/messages";
+
+                }
+                else
+                {// response status failed for get mailFolder Id
+                    return RedirectToAction("Index", "Error", new { message = responseForId.StatusCode, debug = await responseForId.Content.ReadAsStringAsync() });
+                }
+            }
+            //proceed with POST
+
+
             // Build the request.
             // This sample subscribes to get notifications when the user receives an email.
             string subscriptionsEndpoint = "https://graph.microsoft.com/v1.0/subscriptions/";
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, subscriptionsEndpoint);
             var subscription = new Subscription
             {
-                Resource = "me/mailFolders('Inbox')/messages",
+                Resource = resourceValue,
                 ChangeType = "created",
                 NotificationUrl = ConfigurationManager.AppSettings["ida:NotificationUrl"],
                 ClientState = Guid.NewGuid().ToString(),
