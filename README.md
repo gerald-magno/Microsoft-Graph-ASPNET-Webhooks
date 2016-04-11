@@ -1,6 +1,6 @@
 
-# Project Information
-#### This forked Version of ASP.NET MVC sample provides support on subscribing for notifications on specific Mail Folders of logged in user. 
+# Summary
+#### This forked Version of ASP.NET MVC sample demonstrates subscribing for notifications on specific Mail Folders of logged in user. 
 
 
 ![Preview](readme-images/specific%20mail%20folder%20subscribe.png)
