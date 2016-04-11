@@ -1,6 +1,8 @@
 
 # Summary
-#### This forked Version of ASP.NET MVC sample demonstrates subscribing for notifications on specific Mail Folders of logged in user. 
+#### This forked Version of ASP.NET MVC sample demonstrates subscribing for notifications on specific Mail Folders of logged in user.
+
+This scenario can be helpful if you have custom mail Folders(with rules) and want to be notified on specific folder changes.
 
 
 ![Preview](readme-images/specific%20mail%20folder%20subscribe.png)
