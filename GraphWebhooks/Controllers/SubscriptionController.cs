@@ -5,10 +5,12 @@
 
 using System;
 using System.Web;
+using System.Collections.Generic;
 using System.Web.Mvc;
 using GraphWebhooks.Models;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Configuration;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -19,15 +21,10 @@ namespace GraphWebhooks.Controllers
 {
     public class SubscriptionController : Controller
     {
+        private List<string> _excludedMailFolderList = new List<string>(new string[] { "Deleted Items", "Drafts", "Junk Email", "Outbox", "Sent Items" });
 
-        public ActionResult Index()
-        {
-            return View();
-        }
-
-        // Create a webhook subscription.
         [Authorize, HandleAdalException]
-        public async Task<ActionResult> CreateSubscription()
+        public async Task<ActionResult> Index()
         {
             // Get an access token and add it to the client. 
             // This sample stores the refreshToken, so get the AuthenticationResult that has the access token and refresh token.
@@ -39,45 +36,79 @@ namespace GraphWebhooks.Controllers
 
             string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"];
 
-            //if subscription was for custom mailfolder get the id of custom folder first
-            //TODO: add control to choose if subscribing to general messages or only from a folder
-            
-            bool isCustomMailFolderChosen = true;
 
-            //use custom mailFolder here textbox value
-            //TODO: add textbox for user to input custom mail folder name
-            string mailFolderName = "Inbox";
-            //set default
-            string resourceValue = "me/messages";
+            string resourceValue = "/beta/me/mailFolders";
 
-            if (isCustomMailFolderChosen)
+            //build get request for Mail Folder Id
+            HttpRequestMessage requestForId = new HttpRequestMessage(HttpMethod.Get, resourceEndpoint + resourceValue);
+            requestForId.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+
+            // Send the 'GET' request.
+            HttpResponseMessage response = await client.SendAsync(requestForId);
+            if (response.IsSuccessStatusCode)
             {
-                //set resource value for get folder Id
-                string resourceValueForGetId = "/beta/me/mailFolders('" + mailFolderName + "')";
 
-                //build get request for Mail Folder Id
-                HttpRequestMessage requestForId = new HttpRequestMessage(HttpMethod.Get, resourceEndpoint + resourceValueForGetId);
-                requestForId.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+                // Parse the JSON response.
+                string stringResult = await response.Content.ReadAsStringAsync();
+                JObject jsonObject = JObject.Parse(stringResult);
 
-                // Send the 'GET' request.
-                HttpResponseMessage responseForId = await client.SendAsync(requestForId);
-                if (responseForId.IsSuccessStatusCode)
+                //get list of Mailfolder
+                JArray mailFolderList = JArray.Parse(jsonObject["value"].ToString());
+
+                List<SelectListItem> list = new List<SelectListItem>();
+
+                foreach (var item in mailFolderList)
                 {
-                    // Parse the JSON response.
-                    //added Nuget pkg Microsoft.AspNet.WebApi.Client 5.2.2 for system.net.http.Formatting dll
-                    MailFolder mailFolderObject = await responseForId.Content.ReadAsAsync<MailFolder>();
-
-                    string folderId = mailFolderObject.Id;
-                    //change default resourceValue to be used for POST
-                    resourceValue = "me/mailFolders/" + folderId + "/messages";
-
+                    MailFolder folder = JsonConvert.DeserializeObject<MailFolder>(item.ToString());
+                    
+                    //add selected folders
+                    if (!isFolderExcluded(folder.displayName))
+                    {
+                        list.Add(new SelectListItem
+                        {
+                            Text = folder.displayName,
+                            Value = folder.Id
+                        });
+                    }
+                    
                 }
-                else
-                {// response status failed for get mailFolder Id
-                    return RedirectToAction("Index", "Error", new { message = responseForId.StatusCode, debug = await responseForId.Content.ReadAsStringAsync() });
-                }
+
+                //set ViewBag from array of MailFolder object
+                ViewBag.MailFolders = list;
+
             }
-            //proceed with POST
+            else
+            {// response status failed for get mailFolder Id
+                return RedirectToAction("Index", "Error", new { message = response.StatusCode, debug = await response.Content.ReadAsStringAsync() });
+            }
+
+            return View();
+        }
+
+        // Create a webhook subscription.
+        [Authorize, HandleAdalException]
+        public async Task<ActionResult> CreateSubscription(string Id)
+        {
+            
+            // Get an access token and add it to the client. 
+            // This sample stores the refreshToken, so get the AuthenticationResult that has the access token and refresh token.
+            AuthenticationResult authResult = await AuthHelper.GetAccessTokenAsync();
+
+            HttpClient client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"];
+            
+            //default if no MailFolder was selected
+            string resourceValue = "me/mailFolders('Inbox')/messages";
+            
+            // else use Id for resource value
+            if (!String.IsNullOrEmpty(Id))
+            {
+                resourceValue = "me/mailFolders/"+Id+"/messages";
+            }
+            
 
 
             // Build the request.
@@ -152,6 +183,11 @@ namespace GraphWebhooks.Controllers
                 }
             }
             return RedirectToAction("SignOut", "Account");
+        }
+
+        bool isFolderExcluded(string folderName)
+        {
+            return _excludedMailFolderList.Contains(folderName);
         }
     }
 }

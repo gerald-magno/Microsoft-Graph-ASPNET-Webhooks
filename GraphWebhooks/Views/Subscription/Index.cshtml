@@ -4,7 +4,7 @@
 @{
     ViewBag.Title = "Index";
 }
-
+@model GraphWebhooks.Models.MailFolder
 <h2>Microsoft Graph Webhooks</h2>
 
 <div>
@@ -21,8 +21,11 @@
     </code>
     <p>See the <a href="http://graph.microsoft.io/en-us/docs/api-reference/v1.0/resources/subscription">docs</a> for other supported resources and change types.</p>
     <br />
-    @using (Html.BeginForm("CreateSubscription", "Subscription"))
+    @using (Html.BeginForm("CreateSubscription", "Subscription", FormMethod.Post))
     {
+        @Html.DropDownListFor(m => m.Id, (IEnumerable<SelectListItem>)ViewData["MailFolders"], new { @id = "dropdownMailFolder" })
+        
+        
         <button type="submit">Create subscription</button>
     }
 </div>
