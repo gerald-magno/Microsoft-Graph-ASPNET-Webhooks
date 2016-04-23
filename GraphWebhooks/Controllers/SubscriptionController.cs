@@ -16,7 +16,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using GraphWebhooks.Utils;
-
+using GraphWebhooks.Helpers;
 namespace GraphWebhooks.Controllers
 {
     public class SubscriptionController : Controller
@@ -26,30 +26,23 @@ namespace GraphWebhooks.Controllers
         [Authorize, HandleAdalException]
         public async Task<ActionResult> Index()
         {
+            //TODO: Do We need to always get new token every request?
+
             // Get an access token and add it to the client. 
             // This sample stores the refreshToken, so get the AuthenticationResult that has the access token and refresh token.
             AuthenticationResult authResult = await AuthHelper.GetAccessTokenAsync();
 
-            HttpClient client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"];
-
-
-            string resourceValue = "/beta/me/mailFolders";
-
-            //build get request for Mail Folder Id
-            HttpRequestMessage requestForId = new HttpRequestMessage(HttpMethod.Get, resourceEndpoint + resourceValue);
-            requestForId.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"],
+                   resourceValue = "/beta/me/mailFolders",
+                   resource = resourceEndpoint + resourceValue;
 
             // Send the 'GET' request.
-            HttpResponseMessage response = await client.SendAsync(requestForId);
-            if (response.IsSuccessStatusCode)
+            HttpResponseMessage responseMailFolder = await GraphHelper.GetMailFolders(authResult.AccessToken, resource);s
+            if (responseMailFolder.IsSuccessStatusCode)
             {
 
                 // Parse the JSON response.
-                string stringResult = await response.Content.ReadAsStringAsync();
+                string stringResult = await responseMailFolder.Content.ReadAsStringAsync();
                 JObject jsonObject = JObject.Parse(stringResult);
 
                 //get list of Mailfolder
@@ -79,61 +72,50 @@ namespace GraphWebhooks.Controllers
             }
             else
             {// response status failed for get mailFolder Id
-                return RedirectToAction("Index", "Error", new { message = response.StatusCode, debug = await response.Content.ReadAsStringAsync() });
+                return RedirectToAction("Index", "Error", new { message = responseMailFolder.StatusCode, debug = await responseMailFolder.Content.ReadAsStringAsync() });
             }
 
             return View();
         }
 
-        // Create a webhook subscription.
+        
         [Authorize, HandleAdalException]
-        public async Task<ActionResult> CreateSubscription(string Id)
+        public async Task<ActionResult> CreateSubscription(string mailFolderId)
         {
-            
+            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"],
+                   resourceValue;
+
             // Get an access token and add it to the client. 
             // This sample stores the refreshToken, so get the AuthenticationResult that has the access token and refresh token.
             AuthenticationResult authResult = await AuthHelper.GetAccessTokenAsync();
-
-            HttpClient client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            string resourceEndpoint = ConfigurationManager.AppSettings["ida:ResourceId"];
-            
-            //default if no MailFolder was selected
-            string resourceValue = "me/mailFolders('Inbox')/messages";
-            
-            // else use Id for resource value
-            if (!String.IsNullOrEmpty(Id))
+           
+            if (String.IsNullOrEmpty(mailFolderId))
             {
-                resourceValue = "me/mailFolders/"+Id+"/messages";
+                //use default resource if no MailFolder was selected
+                resourceValue = "me/mailFolders('Inbox')/messages";                
+            }
+            else
+            {
+                //use mailFolder Id
+                resourceValue = String.Format("me/mailFolders/{0}/messages", mailFolderId);
             }
             
-
-
-            // Build the request.
-            // This sample subscribes to get notifications when the user receives an email.
-            string subscriptionsEndpoint = "https://graph.microsoft.com/v1.0/subscriptions/";
-            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, subscriptionsEndpoint);
             var subscription = new Subscription
             {
                 Resource = resourceValue,
                 ChangeType = "created",
                 NotificationUrl = ConfigurationManager.AppSettings["ida:NotificationUrl"],
                 ClientState = Guid.NewGuid().ToString(),
-                ExpirationDateTime = DateTime.UtcNow + new TimeSpan(0, 0, 4230, 0)
+                ExpirationDateTime = DateTime.UtcNow + new TimeSpan(3, 0, 0, 0)
             };
 
-            string contentString = JsonConvert.SerializeObject(subscription, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
-            request.Content = new StringContent(contentString, System.Text.Encoding.UTF8, "application/json");
+            HttpResponseMessage subscriptionResponse = await GraphHelper.CreateSubscription(authResult.AccessToken, subscription);
 
-            // Send the request and parse the response.
-            HttpResponseMessage response = await client.SendAsync(request);
-            if (response.IsSuccessStatusCode)
+            if (subscriptionResponse.IsSuccessStatusCode)
             {
 
                 // Parse the JSON response.
-                string stringResult = await response.Content.ReadAsStringAsync();
+                string stringResult = await subscriptionResponse.Content.ReadAsStringAsync();
                 SubscriptionViewModel viewModel = new SubscriptionViewModel
                 {
                     Subscription = JsonConvert.DeserializeObject<Subscription>(stringResult)
@@ -151,7 +133,7 @@ namespace GraphWebhooks.Controllers
             }
             else
             {
-                return RedirectToAction("Index", "Error", new { message = response.StatusCode, debug = await response.Content.ReadAsStringAsync() });
+                return RedirectToAction("Index", "Error", new { message = subscriptionResponse.StatusCode, debug = await subscriptionResponse.Content.ReadAsStringAsync() });
             }
 
         }
@@ -164,22 +146,12 @@ namespace GraphWebhooks.Controllers
 
             if (!string.IsNullOrEmpty(subscriptionId))
             {
-                string serviceRootUrl = "https://graph.microsoft.com/v1.0/subscriptions/";
-
                 // Get an access token and add it to the client.
                 AuthenticationResult authResult = await AuthHelper.GetAccessTokenAsync();
-
-                HttpClient client = new HttpClient();
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-                // Send the 'DELETE /subscriptions/id' request.
-                HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Delete, serviceRootUrl + subscriptionId);
-                HttpResponseMessage response = await client.SendAsync(request);
-
-                if (!response.IsSuccessStatusCode)
+                HttpResponseMessage deleteResponse = await GraphHelper.DeleteSubscription(authResult.AccessToken, subscriptionId);
+                if (!deleteResponse.IsSuccessStatusCode)
                 {
-                    return RedirectToAction("Index", "Error", new { message = response.StatusCode, debug = response.Content.ReadAsStringAsync() });
+                    return RedirectToAction("Index", "Error", new { message = deleteResponse.StatusCode, debug = deleteResponse.Content.ReadAsStringAsync() });
                 }
             }
             return RedirectToAction("SignOut", "Account");
