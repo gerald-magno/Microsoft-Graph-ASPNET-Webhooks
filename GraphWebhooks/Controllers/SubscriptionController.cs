@@ -106,7 +106,8 @@ namespace GraphWebhooks.Controllers
                 ChangeType = "created",
                 NotificationUrl = ConfigurationManager.AppSettings["ida:NotificationUrl"],
                 ClientState = Guid.NewGuid().ToString(),
-                ExpirationDateTime = DateTime.UtcNow + new TimeSpan(3, 0, 0, 0)
+                //Maximum subscription time is 4230 minutes or 70 hrs
+                ExpirationDateTime = DateTime.UtcNow + new TimeSpan(0, 0, 4230, 0)
             };
 
             HttpResponseMessage subscriptionResponse = await GraphHelper.CreateSubscription(authResult.AccessToken, subscription);
